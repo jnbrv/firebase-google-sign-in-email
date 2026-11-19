@@ -198,7 +198,7 @@ class _LoginPageState extends State<LoginPage> {
               const SizedBox(height: 20),
 
               const Text(
-                'Firebase Authentication',
+                'Login to Your Account',
                 style: TextStyle(fontSize: 23, fontWeight: FontWeight.bold),
               ),
 
