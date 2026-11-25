@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'CrudService.dart';
 import 'auth_service.dart';
@@ -16,6 +19,7 @@ class _HomePageState extends State<HomePage> {
   final CrudService service = CrudService();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _quantityController = TextEditingController();
+
   bool showFavoritesOnly = false;
 
   @override
@@ -92,7 +96,6 @@ class _HomePageState extends State<HomePage> {
 
           var docs = snapshot.data!.docs;
 
-          // Filter favorites
           if (showFavoritesOnly) {
             docs = docs.where((doc) {
               final data = doc.data() as Map<String, dynamic>;
@@ -113,10 +116,11 @@ class _HomePageState extends State<HomePage> {
             padding: const EdgeInsets.all(8),
             itemCount: docs.length,
             itemBuilder: (context, index) {
-              var item = docs[index];
-              var data = item.data() as Map<String, dynamic>;
+              final item = docs[index];
+              final data = item.data() as Map<String, dynamic>;
 
-              bool isFavorite = data['favorite'] == true;
+              final bool isFavorite = data['favorite'] == true;
+              final String? imageUrl = data['imageUrl'] as String?;
 
               return Card(
                 elevation: 3,
@@ -129,6 +133,22 @@ class _HomePageState extends State<HomePage> {
                     horizontal: 16,
                     vertical: 8,
                   ),
+
+                  // DISPLAY UPLOADED IMAGE
+                  leading: imageUrl != null && imageUrl.isNotEmpty
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            imageUrl,
+                            width: 60,
+                            height: 60,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return const Icon(Icons.broken_image, size: 40);
+                            },
+                          ),
+                        )
+                      : const Icon(Icons.image, size: 40, color: Colors.grey),
 
                   title: Text(
                     data['name'] ?? '',
@@ -146,7 +166,6 @@ class _HomePageState extends State<HomePage> {
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Favorite button
                       IconButton(
                         onPressed: () {
                           service.toggleFavorite(item.id, isFavorite);
@@ -156,16 +175,12 @@ class _HomePageState extends State<HomePage> {
                           color: isFavorite ? Colors.red : Colors.grey,
                         ),
                       ),
-
-                      // Edit button
                       IconButton(
                         onPressed: () {
                           openEditDialog(context, item);
                         },
                         icon: const Icon(Icons.edit, color: Colors.orange),
                       ),
-
-                      // Delete button
                       IconButton(
                         onPressed: () {
                           _confirmDelete(context, item.id);
@@ -209,71 +224,173 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // ADD ITEM
+  // ADD ITEM WITH IMAGE
   void openAddDialog(BuildContext context) {
     _nameController.clear();
     _quantityController.clear();
 
+    XFile? selectedImage;
+    bool isUploading = false;
+
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Add Item'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _nameController,
-              decoration: InputDecoration(
-                labelText: 'Name',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, updateDialog) {
+            return AlertDialog(
+              title: const Text('Add Item'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: _nameController,
+                      decoration: InputDecoration(
+                        labelText: 'Name',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    TextField(
+                      controller: _quantityController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: 'Quantity',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // IMAGE PREVIEW
+                    if (selectedImage != null)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(
+                          File(selectedImage!.path),
+                          height: 150,
+                          width: 150,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+
+                    const SizedBox(height: 8),
+
+                    // SELECT IMAGE
+                    OutlinedButton.icon(
+                      onPressed: isUploading
+                          ? null
+                          : () async {
+                              final picker = ImagePicker();
+
+                              final image = await picker.pickImage(
+                                source: ImageSource.gallery,
+                              );
+
+                              if (image != null) {
+                                updateDialog(() {
+                                  selectedImage = image;
+                                });
+                              }
+                            },
+                      icon: const Icon(Icons.image),
+                      label: const Text('Choose Image'),
+                    ),
+                  ],
                 ),
               ),
-            ),
 
-            const SizedBox(height: 12),
-
-            TextField(
-              controller: _quantityController,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: 'Quantity',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+              actions: [
+                TextButton(
+                  onPressed: isUploading
+                      ? null
+                      : () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
                 ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
 
-          ElevatedButton(
-            onPressed: () async {
-              if (_nameController.text.trim().isNotEmpty &&
-                  _quantityController.text.trim().isNotEmpty) {
-                await service.addItem(
-                  _nameController.text.trim(),
-                  _quantityController.text.trim(),
-                );
+                ElevatedButton(
+                  onPressed: isUploading
+                      ? null
+                      : () async {
+                          if (_nameController.text.trim().isEmpty ||
+                              _quantityController.text.trim().isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Please enter the item name and quantity.',
+                                ),
+                              ),
+                            );
+                            return;
+                          }
 
-                if (!context.mounted) return;
-                Navigator.pop(context);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.teal,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+                          if (selectedImage == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Please choose an image.'),
+                              ),
+                            );
+                            return;
+                          }
+
+                          updateDialog(() {
+                            isUploading = true;
+                          });
+
+                          try {
+                            // UPLOAD IMAGE TO CLOUDINARY
+                            final imageUrl = await service.uploadImage(
+                              selectedImage!,
+                            );
+
+                            // SAVE ITEM AND IMAGE URL TO FIRESTORE
+                            await service.addItem(
+                              _nameController.text.trim(),
+                              _quantityController.text.trim(),
+                              imageUrl: imageUrl,
+                            );
+
+                            if (!dialogContext.mounted) return;
+                            Navigator.pop(dialogContext);
+                          } catch (e) {
+                            updateDialog(() {
+                              isUploading = false;
+                            });
+
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Upload failed: $e')),
+                            );
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: isUploading
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
